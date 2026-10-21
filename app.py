@@ -1,30 +1,36 @@
 import re
+from google.oauth2.service_account import Credentials
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import pdfplumber
 import streamlit as st
+
 
 # ==============================================================================
 # GOOGLE SHEETS CONNECTOR
 # ==============================================================================
 def connect_to_google_sheet(sheet_name="COA Master Log"):
-    scope = [
-        "https://spreadsheets.google.com/feeds",
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
+
     if "gcp_service_account" in st.secrets:
-        # Convert Streamlit's AttrDict to a standard Python dictionary
+        # Convert Streamlit's internal secret structure to a standard dictionary
         creds_dict = dict(st.secrets["gcp_service_account"])
-        
-        # Ensure private_key has correct newline formatting if passed as escaped string
+
+        # Fix newline escape sequences in the private key if present
         if "private_key" in creds_dict:
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-            
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            creds_dict["private_key"] = creds_dict["private_key"].replace(
+                "\\n", "\n"
+            )
+
+        creds = Credentials.from_service_account_info(
+            creds_dict, scopes=scopes
+        )
     else:
-        creds = ServiceAccountCredentials.from_json_keyfile_name(
-            "credentials.json", scope
+        creds = Credentials.from_service_account_file(
+            "credentials.json", scopes=scopes
         )
 
     client = gspread.authorize(creds)
