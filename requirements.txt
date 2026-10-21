@@ -1,6 +1,5 @@
-Plaintext
 streamlit
 pdfplumber
 pandas
-gspread>=5.10.0
+gspread
 google-auth
