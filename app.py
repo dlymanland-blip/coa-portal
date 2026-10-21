@@ -14,8 +14,13 @@ def connect_to_google_sheet(sheet_name="COA Master Log"):
         "https://www.googleapis.com/auth/drive",
     ]
     if "gcp_service_account" in st.secrets:
-        # Convert Streamlit AttrDict to standard dict
+        # Convert Streamlit's AttrDict to a standard Python dictionary
         creds_dict = dict(st.secrets["gcp_service_account"])
+        
+        # Ensure private_key has correct newline formatting if passed as escaped string
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+            
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     else:
         creds = ServiceAccountCredentials.from_json_keyfile_name(
