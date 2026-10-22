@@ -19,26 +19,20 @@ def fix_potency_decimal(val):
     if not val or val in ["N/A", "ND", "<LOQ", "<LOQ%"]:
         return val
 
-    # Match raw digits and optional percent symbol
     match = re.search(r"^(\d+)\s*(%)?$", val.strip())
     if match:
         digits = match.group(1)
         has_pct = "%" if match.group(2) or "%" in val else ""
 
-        # If decimal is missing and raw integer represents >100% potency
         if not "." in val:
             if len(digits) == 5:
-                # e.g., 25555 -> 25.555
                 return f"{digits[:2]}.{digits[2:]}{has_pct}"
             elif len(digits) == 4:
-                # Check leading digit: if 1-9 without leading high numbers
-                # e.g., 1244 -> 1.244 or 2397 -> 23.97
-                if int(digits[:2]) > 35:  # Potency unlikely over 35%
+                if int(digits[:2]) > 35:
                     return f"{digits[:1]}.{digits[1:]}{has_pct}"
                 else:
                     return f"{digits[:2]}.{digits[2:]}{has_pct}"
             elif len(digits) == 3:
-                # e.g., 124 -> 1.24% or 12.4%
                 if int(digits[:2]) > 35:
                     return f"{digits[:1]}.{digits[1:]}{has_pct}"
                 else:
@@ -172,3 +166,90 @@ def parse_g7(text):
         "Creation Date": parse_regex(r"Date Reported\s*[\|:]?\s*([\d-]+\s*[\d:]+)"),
         "Sample Product Description": parse_regex(
             r"COC Client SID\s*[\|:]?\s*\w+:\s*(.*)"
+        ),
+        "Parent METRC ID": parse_regex(r"Client Batch ID\s*[\|:]?\s*([A-Z0-9]+)"),
+        "PASS / FAIL": overall_status,
+        "Production Batch #": parse_regex(r"COC Client BID\s*[\|:]?\s*([\w-]+)"),
+        "FINAL RESULT?": "Final",
+        "LAB": "G7 Lab, LLC",
+        "Net Wt. (g)": "N/A",
+        "Testing Code": "N/A",
+        "Storage Code": "N/A",
+        "Target Serving (g)": "N/A",
+        "Gross Wt. (g)": "N/A",
+        "Date Sent": "N/A",
+        "Date Received": parse_regex(r"Date Received\s*[\|:]?\s*([\d-]+\s*[\d:]+)"),
+        "Sample METRC ID": parse_regex(r"Metrc Tag\s*[\|:]?\s*([A-Z0-9]+)"),
+        "METRC Manifest": "N/A",
+        "Lab Manifest": "N/A",
+        "Testing COA Link": "N/A",
+        "RETEST Batch? (Y/N)": "N/A",
+        "Is this a RETEST (Y/N)": "N/A",
+        "Reason for Failure": (
+            "Microbiology Failure (Total Yeast & Mold)"
+            if overall_status == "FAIL"
+            else "N/A"
+        ),
+        "TAC": fix_potency_decimal(
+            parse_regex(r"Total Potency\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)")
+        ),
+        "THC": fix_potency_decimal(
+            parse_regex(
+                r"Total THC\s*-\s*THC\+THCAX0\.877\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"
+            )
+        ),
+        "CBD": fix_potency_decimal(
+            parse_regex(
+                r"Total CBD\s*CBD\+CBDAX0\.877\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"
+            )
+        ),
+        "THCa": get_compound("Delta 9 THCA"),
+        "CBDa": get_compound("CBDA"),
+        "Terp": fix_potency_decimal(
+            parse_regex(r"Total Terpenes\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)")
+        ),
+        "Additional Notes": "N/A",
+        "CBGA": get_compound("CBGA"),
+        "Reference Number": parse_regex(r"Sample ID\s*[\|:]?\s*([\w-]+)"),
+    }
+
+
+def process_pdf(pdf_file):
+    with pdfplumber.open(pdf_file) as pdf:
+        full_text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+
+    if "Green Valley" in full_text or "gvalabs.com" in full_text:
+        return parse_gva(full_text)
+    elif "G7 Lab" in full_text or "g7lab.com" in full_text:
+        return parse_g7(full_text)
+    else:
+        return {"LAB": "Unregistered Vendor"}
+
+
+# ==============================================================================
+# STREAMLIT PORTAL UI
+# ==============================================================================
+st.set_page_config(page_title="COA to Google Sheets Portal", layout="wide")
+st.title("🧪 COA Data Portal -> Google Sheets")
+
+uploaded_files = st.file_uploader(
+    "Drop COA PDFs here", type=["pdf"], accept_multiple_files=True
+)
+
+if uploaded_files:
+    results = [process_pdf(file) for file in uploaded_files]
+    df = pd.DataFrame(results)
+
+    st.subheader("Preview Extracted Records")
+    st.dataframe(df)
+
+    if st.button("🚀 Push All Records to Google Sheets"):
+        try:
+            sheet = connect_to_google_sheet("COA Master Log")
+            for record in results:
+                sheet.append_row(list(record.values()))
+            st.success(
+                f"Successfully appended {len(results)} record(s) to Google Sheets!"
+            )
+        except Exception as e:
+            st.error(f"Error writing to Google Sheets: {e}")
