@@ -7,6 +7,29 @@ import streamlit as st
 
 
 # ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
+def clean_potency_val(val):
+    """Fixes values extracted without decimals like '23978%' -> '23.978%'"""
+    if not val or val in ["N/A", "ND", "<LOQ"]:
+        return val
+
+    # Extract digits and percent sign
+    match = re.search(r"(\d+)\s*(%)?", val)
+    if match:
+        digits = match.group(1)
+        has_pct = "%" if match.group(2) else ""
+
+        # If it extracted as 4 or 5 digits without a decimal (e.g. 23978 -> 23.978)
+        if len(digits) == 5 and not "." in val:
+            return f"{digits[:2]}.{digits[2:]}{has_pct}"
+        elif len(digits) == 4 and not "." in val:
+            return f"{digits[:2]}.{digits[2:]}{has_pct}"
+
+    return val
+
+
+# ==============================================================================
 # GOOGLE SHEETS CONNECTOR
 # ==============================================================================
 def connect_to_google_sheet(sheet_name="COA Master Log"):
@@ -43,15 +66,16 @@ def parse_gva(text):
         return match.group(1).strip() if match else "N/A"
 
     def get_compound(compound_name):
-        # Flexible match across spaces, tabs, or pipes for cannabinoid values
         pattern = rf"{compound_name}\b[^\n\r]*?([\d.]+\s*%|[\d.]+|ND|<LOQ|<LOQ%)"
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             val = match.group(1).strip()
-            return val if "%" in val or val in ["ND", "<LOQ"] else f"{val}%"
+            formatted = (
+                val if "%" in val or val in ["ND", "<LOQ"] else f"{val}%"
+            )
+            return clean_potency_val(formatted)
         return "ND"
 
-    # Overall Pass/Fail
     overall_status = "PASS" if "PASS" in text else "FAIL"
 
     return {
@@ -80,14 +104,20 @@ def parse_gva(text):
         "RETEST Batch? (Y/N)": "N/A",
         "Is this a RETEST (Y/N)": "N/A",
         "Reason for Failure": "N/A",
-        "TAC": parse_regex(
-            r"Total Cannabinoids\s*[:|]?\s*([\d.]+\s*%?)"
+        "TAC": clean_potency_val(
+            parse_regex(r"Total Cannabinoids\s*[:|]?\s*([\d.]+\s*%?)")
         ),
-        "THC": parse_regex(r"Total THC\s*[:|]?\s*([\d.]+\s*%?)"),
-        "CBD": parse_regex(r"Total CBD\s*[:|]?\s*([\d.]+\s*%?)"),
+        "THC": clean_potency_val(
+            parse_regex(r"Total THC\s*[:|]?\s*([\d.]+\s*%?)")
+        ),
+        "CBD": clean_potency_val(
+            parse_regex(r"Total CBD\s*[:|]?\s*([\d.]+\s*%?)")
+        ),
         "THCa": get_compound("THCa"),
         "CBDa": get_compound("CBDa"),
-        "Terp": parse_regex(r"Total Terpenes\s*[:|]?\s*([\d.]+\s*%?)"),
+        "Terp": clean_potency_val(
+            parse_regex(r"Total Terpenes\s*[:|]?\s*([\d.]+\s*%?)")
+        ),
         "Additional Notes": "N/A",
         "CBGA": get_compound("CBGA"),
         "Reference Number": parse_regex(r"Sample #:\s*(\d+)"),
@@ -105,7 +135,11 @@ def parse_g7(text):
             text,
             re.IGNORECASE,
         )
-        return match.group(1).strip() if match else "<LOQ Wt.%"
+        return (
+            clean_potency_val(match.group(1).strip())
+            if match
+            else "<LOQ Wt.%"
+        )
 
     overall_status = (
         "FAIL"
@@ -141,16 +175,24 @@ def parse_g7(text):
             if overall_status == "FAIL"
             else "N/A"
         ),
-        "TAC": parse_regex(r"Total Potency\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"),
-        "THC": parse_regex(
-            r"Total THC\s*-\s*THC\+THCAX0\.877\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"
+        "TAC": clean_potency_val(
+            parse_regex(r"Total Potency\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)")
         ),
-        "CBD": parse_regex(
-            r"Total CBD\s*CBD\+CBDAX0\.877\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"
+        "THC": clean_potency_val(
+            parse_regex(
+                r"Total THC\s*-\s*THC\+THCAX0\.877\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"
+            )
+        ),
+        "CBD": clean_potency_val(
+            parse_regex(
+                r"Total CBD\s*CBD\+CBDAX0\.877\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"
+            )
         ),
         "THCa": get_compound("Delta 9 THCA"),
         "CBDa": get_compound("CBDA"),
-        "Terp": parse_regex(r"Total Terpenes\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"),
+        "Terp": clean_potency_val(
+            parse_regex(r"Total Terpenes\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)")
+        ),
         "Additional Notes": "N/A",
         "CBGA": get_compound("CBGA"),
         "Reference Number": parse_regex(r"Sample ID\s*[\|:]?\s*([\w-]+)"),
