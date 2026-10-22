@@ -9,36 +9,21 @@ import streamlit as st
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
-def fix_potency_decimal(val):
-    """
-    Ensures potency percentages have correct decimal placement:
-    - '1244%' -> '1.244%'
-    - '25555%' -> '25.555%'
-    - '23978%' -> '23.978%'
-    """
+def clean_potency_val(val):
+    """Clean up extracted percentage string."""
     if not val or val in ["N/A", "ND", "<LOQ", "<LOQ%"]:
-        return val
+        return val.upper() if val else "ND"
 
-    match = re.search(r"^(\d+)\s*(%)?$", val.strip())
+    val_str = str(val).strip()
+
+    # Format pure decimal strings or strings with %
+    match = re.search(r"^([\d.]+)\s*(%)?$", val_str)
     if match:
-        digits = match.group(1)
-        has_pct = "%" if match.group(2) or "%" in val else ""
+        num_part = float(match.group(1))
+        # Round cleanly to 3 decimal places
+        return f"{num_part:.3f}%"
 
-        if not "." in val:
-            if len(digits) == 5:
-                return f"{digits[:2]}.{digits[2:]}{has_pct}"
-            elif len(digits) == 4:
-                if int(digits[:2]) > 35:
-                    return f"{digits[:1]}.{digits[1:]}{has_pct}"
-                else:
-                    return f"{digits[:2]}.{digits[2:]}{has_pct}"
-            elif len(digits) == 3:
-                if int(digits[:2]) > 35:
-                    return f"{digits[:1]}.{digits[1:]}{has_pct}"
-                else:
-                    return f"{digits[:2]}.{digits[2:]}{has_pct}"
-
-    return val
+    return val_str
 
 
 # ==============================================================================
@@ -77,18 +62,28 @@ def parse_gva(text):
         match = re.search(pattern, text, re.IGNORECASE)
         return match.group(1).strip() if match else "N/A"
 
-    def get_compound(compound_name):
-        pattern = rf"{compound_name}\b.*?(ND|<LOQ|[\d.]+\s*%|[\d.]+)"
+    def get_compound_percent(compound_name):
+        """
+        Target row format:
+        Compound | CAS# | LOD | LOQ | % | mg/g
+        Ignores CAS# and LOD/LOQ, grabs ONLY column 4 (%)
+        """
+        pattern = rf"{compound_name}\s*\|\s*[\d-]*\s*\|\s*[\d.]*\s*\|\s*[\d.]*\s*\|\s*([\d.<>LOQND]+)"
         match = re.search(pattern, text, re.IGNORECASE)
+
         if match:
             raw_val = match.group(1).strip()
-            if raw_val in ["ND", "<LOQ"]:
-                return raw_val
+            if raw_val.upper() in ["ND", "<LOQ"]:
+                return raw_val.upper()
+            return clean_potency_val(raw_val)
 
-            if "%" not in raw_val:
-                raw_val = f"{raw_val}%"
+        # Fallback regex search if pipes are collapsed
+        fallback = rf"{compound_name}\b[^\n]*?\|\s*([\d.<>LOQND]+)\s*\|"
+        fb_match = re.search(fallback, text, re.IGNORECASE)
+        if fb_match:
+            res = fb_match.group(1).strip()
+            return res.upper() if res.upper() in ["ND", "<LOQ"] else clean_potency_val(res)
 
-            return fix_potency_decimal(raw_val)
         return "ND"
 
     overall_status = "PASS" if "PASS" in text else "FAIL"
@@ -119,22 +114,22 @@ def parse_gva(text):
         "RETEST Batch? (Y/N)": "N/A",
         "Is this a RETEST (Y/N)": "N/A",
         "Reason for Failure": "N/A",
-        "TAC": fix_potency_decimal(
-            parse_regex(r"Total Cannabinoids\s*[:|]?\s*([\d.]+\s*%?)")
+        "TAC": clean_potency_val(
+            parse_regex(r"Total Cannabinoids\s*\n?\s*([\d.]+\s*%?)")
         ),
-        "THC": fix_potency_decimal(
-            parse_regex(r"Total THC\s*[:|]?\s*([\d.]+\s*%?)")
+        "THC": clean_potency_val(
+            parse_regex(r"Total THC\s*\n?\s*([\d.]+\s*%?)")
         ),
-        "CBD": fix_potency_decimal(
-            parse_regex(r"Total CBD\s*[:|]?\s*([\d.]+\s*%?)")
+        "CBD": clean_potency_val(
+            parse_regex(r"Total CBD\s*\n?\s*([\d.]+\s*%?)")
         ),
-        "THCa": get_compound("THCa"),
-        "CBDa": get_compound("CBDa"),
-        "Terp": fix_potency_decimal(
-            parse_regex(r"Total Terpenes\s*[:|]?\s*([\d.]+\s*%?)")
+        "THCa": get_compound_percent("THCa"),
+        "CBDa": get_compound_percent("CBDa"),
+        "Terp": clean_potency_val(
+            parse_regex(r"Total Terpenes\s*\n?\s*([\d.]+\s*%?)")
         ),
         "Additional Notes": "N/A",
-        "CBGA": get_compound("CBGA"),
+        "CBGA": get_compound_percent("CBGA"),
         "Reference Number": parse_regex(r"Sample #:\s*(\d+)"),
     }
 
@@ -151,7 +146,7 @@ def parse_g7(text):
             re.IGNORECASE,
         )
         return (
-            fix_potency_decimal(match.group(1).strip())
+            clean_potency_val(match.group(1).strip())
             if match
             else "<LOQ Wt.%"
         )
@@ -190,22 +185,22 @@ def parse_g7(text):
             if overall_status == "FAIL"
             else "N/A"
         ),
-        "TAC": fix_potency_decimal(
+        "TAC": clean_potency_val(
             parse_regex(r"Total Potency\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)")
         ),
-        "THC": fix_potency_decimal(
+        "THC": clean_potency_val(
             parse_regex(
                 r"Total THC\s*-\s*THC\+THCAX0\.877\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"
             )
         ),
-        "CBD": fix_potency_decimal(
+        "CBD": clean_potency_val(
             parse_regex(
                 r"Total CBD\s*CBD\+CBDAX0\.877\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"
             )
         ),
         "THCa": get_compound("Delta 9 THCA"),
         "CBDa": get_compound("CBDA"),
-        "Terp": fix_potency_decimal(
+        "Terp": clean_potency_val(
             parse_regex(r"Total Terpenes\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)")
         ),
         "Additional Notes": "N/A",
