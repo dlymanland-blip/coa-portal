@@ -84,18 +84,16 @@ def parse_gva(text):
         return match.group(1).strip() if match else "N/A"
 
     def get_compound(compound_name):
-        # Match compound name and capture digits prior to % or N/A boundary
         pattern = rf"{compound_name}\b.*?(ND|<LOQ|[\d.]+\s*%|[\d.]+)"
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             raw_val = match.group(1).strip()
             if raw_val in ["ND", "<LOQ"]:
                 return raw_val
-            
-            # Append % if missing
+
             if "%" not in raw_val:
                 raw_val = f"{raw_val}%"
-                
+
             return fix_potency_decimal(raw_val)
         return "ND"
 
@@ -174,53 +172,3 @@ def parse_g7(text):
         "Creation Date": parse_regex(r"Date Reported\s*[\|:]?\s*([\d-]+\s*[\d:]+)"),
         "Sample Product Description": parse_regex(
             r"COC Client SID\s*[\|:]?\s*\w+:\s*(.*)"
-        ),
-        "Parent METRC ID": parse_regex(r"Client Batch ID\s*[\|:]?\s*([A-Z0-9]+)"),
-        "PASS / FAIL": overall_status,
-        "Production Batch #": parse_regex(r"COC Client BID\s*[\|:]?\s*([\w-]+)"),
-        "FINAL RESULT?": "Final",
-        "LAB": "G7 Lab, LLC",
-        "Net Wt. (g)": "N/A",
-        "Testing Code": "N/A",
-        "Storage Code": "N/A",
-        "Target Serving (g)": "N/A",
-        "Gross Wt. (g)": "N/A",
-        "Date Sent": "N/A",
-        "Date Received": parse_regex(r"Date Received\s*[\|:]?\s*([\d-]+\s*[\d:]+)"),
-        "Sample METRC ID": parse_regex(r"Metrc Tag\s*[\|:]?\s*([A-Z0-9]+)"),
-        "METRC Manifest": "N/A",
-        "Lab Manifest": "N/A",
-        "Testing COA Link": "N/A",
-        "RETEST Batch? (Y/N)": "N/A",
-        "Is this a RETEST (Y/N)": "N/A",
-        "Reason for Failure": (
-            "Microbiology Failure (Total Yeast & Mold)"
-            if overall_status == "FAIL"
-            else "N/A"
-        ),
-        "TAC": fix_potency_decimal(
-            parse_regex(r"Total Potency\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)")
-        ),
-        "THC": fix_potency_decimal(
-            parse_regex(
-                r"Total THC\s*-\s*THC\+THCAX0\.877\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"
-            )
-        ),
-        "CBD": fix_potency_decimal(
-            parse_regex(
-                r"Total CBD\s*CBD\+CBDAX0\.877\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)"
-            )
-        ),
-        "THCa": get_compound("Delta 9 THCA"),
-        "CBDa": get_compound("CBDA"),
-        "Terp": fix_potency_decimal(
-            parse_regex(r"Total Terpenes\s*[\|:]?\s*([\d.]+\s*(?:Wt\.%)?)")
-        ),
-        "Additional Notes": "N/A",
-        "CBGA": get_compound("CBGA"),
-        "Reference Number": parse_regex(r"Sample ID\s*[\|:]?\s*([\w-]+)"),
-    }
-
-
-def process_pdf(pdf_file):
-    with pdfplumber.open(pdf
