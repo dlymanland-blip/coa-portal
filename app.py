@@ -10,20 +10,24 @@ import streamlit as st
 # HELPER FUNCTIONS
 # ==============================================================================
 def clean_potency_val(val):
-    """Clean up extracted percentage string."""
-    if not val or val in ["N/A", "ND", "<LOQ", "<LOQ%"]:
-        return val.upper() if val else "ND"
+    """Clean and format potency numbers to 3 decimal places."""
+    if not val or str(val).strip().upper() in ["N/A", "ND", "<LOQ", "<LOQ%"]:
+        return "ND"
 
     val_str = str(val).strip()
 
-    # Format pure decimal strings or strings with %
-    match = re.search(r"^([\d.]+)\s*(%)?$", val_str)
+    # Extract valid numerical values
+    match = re.search(r"([\d.]+)", val_str)
     if match:
-        num_part = float(match.group(1))
-        # Round cleanly to 3 decimal places
-        return f"{num_part:.3f}%"
+        try:
+            num = float(match.group(1))
+            if num == 0.0:
+                return "ND"
+            return f"{num:.3f}%"
+        except ValueError:
+            return "ND"
 
-    return val_str
+    return "ND"
 
 
 # ==============================================================================
@@ -62,27 +66,18 @@ def parse_gva(text):
         match = re.search(pattern, text, re.IGNORECASE)
         return match.group(1).strip() if match else "N/A"
 
-    def get_compound_percent(compound_name):
-        """
-        Target row format:
-        Compound | CAS# | LOD | LOQ | % | mg/g
-        Ignores CAS# and LOD/LOQ, grabs ONLY column 4 (%)
-        """
-        pattern = rf"{compound_name}\s*\|\s*[\d-]*\s*\|\s*[\d.]*\s*\|\s*[\d.]*\s*\|\s*([\d.<>LOQND]+)"
+    def get_compound(compound_name):
+        # Multiline pipe pattern: Compound name followed by 4 pipe separators to hit % column
+        pattern = rf"{compound_name}\s*(?:\n|\r|\s)*\|[^\n|]*\|[^\n|]*\|[^\n|]*\|\s*([^\n|]+)"
         match = re.search(pattern, text, re.IGNORECASE)
-
         if match:
-            raw_val = match.group(1).strip()
-            if raw_val.upper() in ["ND", "<LOQ"]:
-                return raw_val.upper()
-            return clean_potency_val(raw_val)
+            return clean_potency_val(match.group(1))
 
-        # Fallback regex search if pipes are collapsed
-        fallback = rf"{compound_name}\b[^\n]*?\|\s*([\d.<>LOQND]+)\s*\|"
-        fb_match = re.search(fallback, text, re.IGNORECASE)
-        if fb_match:
-            res = fb_match.group(1).strip()
-            return res.upper() if res.upper() in ["ND", "<LOQ"] else clean_potency_val(res)
+        # Single-line pipe fallback
+        single_pattern = rf"{compound_name}\b[^\n]*?\|\s*([\d.<>LOQND]+)\s*\|"
+        s_match = re.search(single_pattern, text, re.IGNORECASE)
+        if s_match:
+            return clean_potency_val(s_match.group(1))
 
         return "ND"
 
@@ -91,7 +86,7 @@ def parse_gva(text):
     return {
         "Creation Date": parse_regex(r"Date Released:\s*([\d/]+)"),
         "Sample Product Description": parse_regex(
-            r"(?:Report #|Sample Description):\s*\d*\s*\n*(.*?)\n*(?:Sample #|METRC)"
+            r"Report #:\s*\d+\s*\n(.*?)\nSample #:"
         ).replace("\n", " "),
         "Parent METRC ID": parse_regex(
             r"METRC Source Package ID:\s*([A-Z0-9]+)"
@@ -115,21 +110,17 @@ def parse_gva(text):
         "Is this a RETEST (Y/N)": "N/A",
         "Reason for Failure": "N/A",
         "TAC": clean_potency_val(
-            parse_regex(r"Total Cannabinoids\s*\n?\s*([\d.]+\s*%?)")
+            parse_regex(r"Total Cannabinoids:?\s*([\d.]+%?)")
         ),
-        "THC": clean_potency_val(
-            parse_regex(r"Total THC\s*\n?\s*([\d.]+\s*%?)")
-        ),
-        "CBD": clean_potency_val(
-            parse_regex(r"Total CBD\s*\n?\s*([\d.]+\s*%?)")
-        ),
-        "THCa": get_compound_percent("THCa"),
-        "CBDa": get_compound_percent("CBDa"),
+        "THC": clean_potency_val(parse_regex(r"Total THC:?\s*([\d.]+%?)")),
+        "CBD": clean_potency_val(parse_regex(r"Total CBD:?\s*([\d.]+%?)")),
+        "THCa": get_compound("THCa"),
+        "CBDa": get_compound("CBDa"),
         "Terp": clean_potency_val(
-            parse_regex(r"Total Terpenes\s*\n?\s*([\d.]+\s*%?)")
+            parse_regex(r"Total Terpenes\s*\n?\s*([\d.]+%?)")
         ),
         "Additional Notes": "N/A",
-        "CBGA": get_compound_percent("CBGA"),
+        "CBGA": get_compound("CBGA"),
         "Reference Number": parse_regex(r"Sample #:\s*(\d+)"),
     }
 
@@ -205,7 +196,7 @@ def parse_g7(text):
         ),
         "Additional Notes": "N/A",
         "CBGA": get_compound("CBGA"),
-        "Reference Number": parse_regex(r"Sample ID\s*[\|:]?\s*([\w-]+)"),
+        "Reference Number": parse_regex(r"Sample #:\s*(\d+)"),
     }
 
 
